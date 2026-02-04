@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Player Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .device-code {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+            text-align: center;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        iframe {
+            width: 100%;
+            height: 400px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎮 Digital Signage Player Test</h1>
+    
+    <div class="test-section">
+        <h2>Player Preview</h2>
+        <p>This shows the player in a smaller window for testing purposes:</p>
+        <iframe src="index.html" title="Player Preview"></iframe>
+        <p><a href="index.html" target="_blank">Open Player in Full Window</a></p>
+    </div>
+    
+    <div class="test-section">
+        <h2>API Connection Test</h2>
+        <div id="connectionStatus" class="status info">Testing connection...</div>
+        <button onclick="testConnection()">Test API Connection</button>
+        <button onclick="testHeartbeat()">Test Heartbeat</button>
+        <button onclick="testPlaylist()">Test Playlist Fetch</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Device Information</h2>
+        <div id="deviceInfo">
+            <p><strong>Device Code:</strong> <span id="deviceCode">Loading...</span></p>
+            <p><strong>API URL:</strong> <span id="apiUrl">Loading...</span></p>
+            <p><strong>Browser:</strong> <span id="browserInfo">Loading...</span></p>
+            <p><strong>Screen Resolution:</strong> <span id="screenInfo">Loading...</span></p>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Player Monitoring</h2>
+        <div id="monitoringStatus" class="status info">Monitoring dashboard available</div>
+        <button onclick="showMonitoringDashboard()">Show Monitoring Dashboard</button>
+        <button onclick="testNetworkQuality()">Test Network Quality</button>
+        <button onclick="simulateError()">Simulate Error</button>
+        <button onclick="showPerformanceStats()">Show Performance Stats</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Content Management</h2>
+        <div id="cacheInfo" class="status info">Loading cache info...</div>
+        <button onclick="showCacheInfo()">Show Cache Info</button>
+        <button onclick="cleanupCache()">Cleanup Cache</button>
+        <button onclick="exportCache()">Export Cache</button>
+        <button onclick="clearAllCache()">Clear All Cache</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Results</h2>
+        <div id="testResults"></div>
+    </div>
+
+    <script src="content-manager.js"></script>
+    <script src="monitoring-dashboard.js"></script>
+    <script>
+        // Get device code from localStorage (same as player)
+        function getDeviceCode() {
+            let code = localStorage.getItem('deviceCode');
+            if (!code) {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                code = '';
+                for (let i = 0; i < 8; i++) {
+                    code += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                localStorage.setItem('deviceCode', code);
+            }
+            return code;
+        }
+        
+        // Get API URL (same logic as player)
+        function getApiUrl() {
+            const hostname = window.location.hostname;
+            const port = window.location.port;
+            const protocol = window.location.protocol;
+            
+            if (port === '3001' || (!port && hostname !== 'localhost')) {
+                return `${protocol}//${hostname}${port ? ':' + port : ''}`;
+            }
+            
+            if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                return 'http://localhost:3001';
+            }
+            
+            return `${protocol}//${hostname}:3001`;
+        }
+        
+        // Initialize device info
+        function initDeviceInfo() {
+            document.getElementById('deviceCode').textContent = getDeviceCode();
+            document.getElementById('apiUrl').textContent = getApiUrl();
+            document.getElementById('browserInfo').textContent = navigator.userAgent;
+            document.getElementById('screenInfo').textContent = `${screen.width}x${screen.height}`;
+        }
+        
+        // Test API connection
+        async function testConnection() {
+            const status = document.getElementById('connectionStatus');
+            status.className = 'status info';
+            status.textContent = 'Testing connection...';
+            
+            try {
+                const response = await fetch(`${getApiUrl()}/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    status.className = 'status success';
+                    status.textContent = `✅ API Connected - ${data.service} v${data.version}`;
+                    addTestResult('API Connection', 'SUCCESS', `Connected to ${data.service}`);
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                status.className = 'status error';
+                status.textContent = `❌ Connection Failed: ${error.message}`;
+                addTestResult('API Connection', 'FAILED', error.message);
+            }
+        }
+        
+        // Test heartbeat
+        async function testHeartbeat() {
+            const deviceCode = getDeviceCode();
+            try {
+                const response = await fetch(`${getApiUrl()}/api/player/${deviceCode}/heartbeat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        status: 'online',
+                        playerInfo: {
+                            userAgent: navigator.userAgent,
+                            screenResolution: `${screen.width}x${screen.height}`,
+                            isFullscreen: false,
+                            currentPlaylist: null,
+                            currentItem: 0,
+                            isPlaying: false
+                        }
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    addTestResult('Heartbeat', 'SUCCESS', `Heartbeat sent successfully`);
+                } else if (response.status === 404) {
+                    addTestResult('Heartbeat', 'INFO', 'Device not registered (expected for new devices)');
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                addTestResult('Heartbeat', 'FAILED', error.message);
+            }
+        }
+        
+        // Test playlist fetch
+        async function testPlaylist() {
+            const deviceCode = getDeviceCode();
+            try {
+                const response = await fetch(`${getApiUrl()}/api/player/${deviceCode}`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.content && data.content.length > 0) {
+                        addTestResult('Playlist Fetch', 'SUCCESS', `Found playlist: ${data.playlist.name} (${data.content.length} items)`);
+                    } else {
+                        addTestResult('Playlist Fetch', 'INFO', 'No playlist assigned (expected for unpaired devices)');
+                    }
+                } else if (response.status === 404) {
+                    addTestResult('Playlist Fetch', 'INFO', 'Device not found (expected for new devices)');
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                addTestResult('Playlist Fetch', 'FAILED', error.message);
+            }
+        }
+        
+        // Add test result
+        function addTestResult(test, status, message) {
+            const results = document.getElementById('testResults');
+            const statusClass = status === 'SUCCESS' ? 'success' : status === 'FAILED' ? 'error' : 'info';
+            const icon = status === 'SUCCESS' ? '✅' : status === 'FAILED' ? '❌' : 'ℹ️';
+            
+            results.innerHTML += `
+                <div class="status ${statusClass}">
+                    <strong>${icon} ${test}:</strong> ${message}
+                    <small style="float: right;">${new Date().toLocaleTimeString()}</small>
+                </div>
+            `;
+        }
+        
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', () => {
+            initDeviceInfo();
+            testConnection();
+            
+            // Initialize content manager
+            if (typeof ContentManager !== 'undefined') {
+                window.contentManager = new ContentManager();
+                showCacheInfo();
+            }
+        });
+        
+        // Content management functions
+        function showCacheInfo() {
+            if (!window.contentManager) return;
+            
+            const info = window.contentManager.getCacheInfo();
+            const cacheDiv = document.getElementById('cacheInfo');
+            
+            if (info.error) {
+                cacheDiv.className = 'status error';
+                cacheDiv.textContent = `Cache Error: ${info.error}`;
+            } else {
+                cacheDiv.className = 'status info';
+                cacheDiv.innerHTML = `
+                    <strong>Cache Status:</strong><br>
+                    Media Cache: ${info.hasMediaCache ? '✅' : '❌'} (${info.totalItems} items)<br>
+                    Playlist Cache: ${info.hasPlaylistCache ? '✅' : '❌'}<br>
+                    Device Code: ${info.hasDeviceCode ? '✅' : '❌'}<br>
+                    Storage Used: ${window.contentManager.formatBytes(info.localStorageUsage)}<br>
+                    Cache Age: ${info.cacheAge ? Math.round(info.cacheAge / 1000 / 60) + ' minutes' : 'N/A'}
+                `;
+            }
+        }
+        
+        function cleanupCache() {
+            if (!window.contentManager) return;
+            
+            const success = window.contentManager.cleanupCache();
+            addTestResult('Cache Cleanup', success ? 'SUCCESS' : 'FAILED', 
+                success ? 'Cache cleaned successfully' : 'Failed to clean cache');
+            showCacheInfo();
+        }
+        
+        function exportCache() {
+            if (!window.contentManager) return;
+            
+            const data = window.contentManager.exportCacheData();
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `player-cache-${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            addTestResult('Cache Export', 'SUCCESS', 'Cache data exported to file');
+        }
+        
+        function clearAllCache() {
+            if (!window.contentManager && confirm('This will clear ALL cached data. Continue?')) {
+                const success = window.contentManager.resetAll();
+                addTestResult('Clear All Cache', success ? 'SUCCESS' : 'FAILED',
+                    success ? 'All cache cleared' : 'Failed to clear cache');
+                showCacheInfo();
+            }
+        }
+        
+        // Monitoring functions
+        function showMonitoringDashboard() {
+            if (window.monitoringDashboard) {
+                window.monitoringDashboard.show();
+                addTestResult('Monitoring Dashboard', 'SUCCESS', 'Dashboard opened (press Ctrl+M to toggle)');
+            } else {
+                addTestResult('Monitoring Dashboard', 'FAILED', 'Dashboard not available');
+            }
+        }
+        
+        async function testNetworkQuality() {
+            const startTime = Date.now();
+            try {
+                const response = await fetch(`${getApiUrl()}/health`);
+                const responseTime = Date.now() - startTime;
+                
+                if (response.ok) {
+                    const quality = responseTime < 100 ? 'Excellent' : 
+                                  responseTime < 300 ? 'Good' : 
+                                  responseTime < 1000 ? 'Fair' : 'Poor';
+                    addTestResult('Network Quality', 'SUCCESS', 
+                        `${quality} (${responseTime}ms response time)`);
+                } else {
+                    addTestResult('Network Quality', 'FAILED', `HTTP ${response.status}`);
+                }
+            } catch (error) {
+                addTestResult('Network Quality', 'FAILED', error.message);
+            }
+        }
+        
+        function simulateError() {
+            if (window.player) {
+                window.player.recordError('Test error from monitoring dashboard');
+                addTestResult('Simulate Error', 'SUCCESS', 'Test error recorded');
+            } else {
+                addTestResult('Simulate Error', 'FAILED', 'Player not available');
+            }
+        }
+        
+        function showPerformanceStats() {
+            if (window.player) {
+                const stats = {
+                    playback: window.player.getPlaybackStats(),
+                    performance: window.player.getPerformanceMetrics(),
+                    network: window.player.getNetworkStatus(),
+                    uptime: window.player.getUptime()
+                };
+                
+                const statsDiv = document.getElementById('monitoringStatus');
+                statsDiv.className = 'status info';
+                statsDiv.innerHTML = `
+                    <strong>Performance Stats:</strong><br>
+                    Uptime: ${Math.round(stats.uptime / 1000 / 60)} minutes<br>
+                    Items Played: ${stats.playback.totalItemsPlayed}<br>
+                    Avg Load Time: ${stats.performance.averageLoadTime.toFixed(0)}ms<br>
+                    Network: ${stats.network.connectionType} (${stats.network.isOnline ? 'Online' : 'Offline'})<br>
+                    Errors: ${window.player.getErrorCount().total}
+                `;
+                
+                addTestResult('Performance Stats', 'SUCCESS', 'Stats displayed above');
+            } else {
+                addTestResult('Performance Stats', 'FAILED', 'Player not available');
+            }
+        }
+    </script>
+</body>
+</html>

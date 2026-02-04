@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://*.supabase.co; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+    <title>Digital Signage Player</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #1a1a2e;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            cursor: default; /* Show cursor for better visibility */
+        }
+        
+        .player-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        
+        .media-content {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Changed from cover to contain to ensure image is visible */
+            display: block;
+            background: #333; /* Add background to see if element exists */
+            border: 2px solid #4A90E2; /* Temporary border for debugging */
+        }
+        
+        .loading {
+            font-size: 2rem;
+            text-align: center;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .error {
+            color: #ff6b6b;
+            font-size: 1.5rem;
+            text-align: center;
+            padding: 2rem;
+            background: rgba(255, 107, 107, 0.1);
+            border-radius: 12px;
+            margin: 2rem;
+            border: 1px solid rgba(255, 107, 107, 0.3);
+        }
+        
+        .pairing {
+            text-align: center;
+            padding: 2rem;
+            max-width: 600px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            border: 1px solid rgba(74, 144, 226, 0.3);
+        }
+        
+        .pairing h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: #4A90E2;
+        }
+        
+        .pairing p {
+          font-size: 1.2rem;
+            margin: 1rem 0;
+            color: #ccc;
+        }
+        
+        .device-input-container {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            justify-content: center;
+            margin: 2rem 0;
+            flex-wrap: wrap;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2rem;
+            border-radius: 16px;
+            border: 2px solid #4A90E2;
+        }
+        
+        .device-code-input {
+            font-size: 2rem;
+            font-weight: bold;
+            letter-spacing: 0.3em;
+            color: #000;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            border: 3px solid #4A90E2;
+            text-align: center;
+            text-transform: uppercase;
+            min-width: 300px;
+            outline: none;
+        }
+        
+        .device-code-input:focus {
+            border-color: #357ABD;
+            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.3);
+        }
+        
+        .device-code-input::placeholder {
+            color: rgba(0, 0, 0, 0.5);
+            font-size: 1.5rem;
+            letter-spacing: normal;
+        }
+        
+        .connect-button {
+            background: #4A90E2;
+            color: white;
+            border: none;
+            padding: 1.2rem 2.5rem;
+            border-radius: 12px;
+            font-size: 1.4rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            min-width: 150px;
+            border: 3px solid #4A90E2;
+        }
+        
+        .connect-button:hover {
+            background: #357ABD;
+        }
+        
+        .connect-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .help-text {
+            font-size: 1rem;
+            color: #bbb;
+            margin-top: 1rem;
+        }
+        
+        .device-code {
+            font-size: 4rem;
+            font-weight: bold;
+            margin: 2rem 0;
+            letter-spacing: 0.3em;
+            color: #4A90E2;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            border: 2px solid #4A90E2;
+        }
+        
+        .status-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            z-index: 1000;
+            opacity: 0.8;
+        }
+        
+        .status-online {
+            background: #28a745;
+            color: white;
+        }
+        
+        .status-offline {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .status-loading {
+            background: #ffc107;
+            color: black;
+        }
+        
+        .playlist-info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .playlist-info.show {
+            opacity: 1;
+        }
+        
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            height: 4px;
+            background: #4A90E2;
+            transition: width 0.1s linear;
+            z-index: 1000;
+        }
+        
+        .fullscreen-toggle {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border: none;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            z-index: 1000;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+        }
+        
+        .fullscreen-toggle:hover {
+            opacity: 1;
+        }
+        
+        /* Hide controls in fullscreen mode */
+        .fullscreen-mode .status-indicator,
+        .fullscreen-mode .playlist-info,
+        .fullscreen-mode .fullscreen-toggle {
+            display: none;
+        }
+        
+        /* Fade transition between content */
+        .fade-transition {
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+        
+        .fade-transition.show {
+            opacity: 1;
+        }
+        
+        /* Network status indicator */
+        .network-status {
+            position: fixed;
+            top: 60px;
+            right: 20px;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            z-index: 1000;
+            opacity: 0.8;
+        }
+        
+        .network-online {
+            background: #28a745;
+            color: white;
+        }
+        
+        .network-offline {
+            background: #dc3545;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="player-container">
+        <div id="content" class="fade-transition show">
+            <div class="pairing">
+                <h1>Digital Signage Player</h1>
+                <p>Enter the device code from your admin portal</p>
+                <div class="device-input-container">
+                    <input type="text" 
+                           id="deviceCodeInput" 
+                           class="device-code-input" 
+                           placeholder="Enter device code..."
+                           maxlength="8"
+                           autocomplete="off">
+                    <button id="connectButton" class="connect-button">Connect</button>
+                </div>
+                <div class="device-code" id="deviceCode" style="display: none;">Loading...</div>
+                <p class="help-text">Get the device code from the Screens section in your admin dashboard</p>
+                <p style="margin-top: 2rem; font-size: 0.9rem; color: #888;">
+                    Press 'F' for fullscreen • Press 'R' to refresh
+                </p>
+            </div>
+        </div>
+        
+        <!-- Status indicators -->
+        <div id="statusIndicator" class="status-indicator status-loading">Connecting...</div>
+        <div id="networkStatus" class="network-status network-online">Online</div>
+        
+        <!-- Playlist info -->
+        <div id="playlistInfo" class="playlist-info">
+            <div id="playlistName"></div>
+            <div id="itemInfo"></div>
+        </div>
+        
+        <!-- Progress bar -->
+        <div id="progressBar" class="progress-bar" style="width: 0%"></div>
+        
+        <!-- Fullscreen toggle -->
+        <button id="fullscreenToggle" class="fullscreen-toggle" title="Toggle Fullscreen">⛶</button>
+    </div>
+    
+    <script src="content-manager.js"></script>
+    <script src="monitoring-dashboard.js"></script>
+    <script src="debug-player.js"></script>
+    <script src="player.js"></script>
+</body>
+</html>
