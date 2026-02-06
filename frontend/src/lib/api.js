@@ -3,9 +3,16 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 class ApiClient {
   constructor() {
     this.baseURL = API_BASE_URL;
+    this.authContext = null; // Will be set by AuthContext
+    this.maxRetries = 3;
+    this.retryDelay = 1000; // Initial delay in ms
   }
 
-  async request(endpoint, options = {}) {
+  setAuthContext(context) {
+    this.authContext = context;
+  }
+
+  async request(endpoint, options = {}, retryCount = 0) {
     const url = `${this.baseURL}${endpoint}`;
     
     const config = {
@@ -18,9 +25,35 @@ class ApiClient {
 
     // Add auth token if available
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('api_token');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      const apiToken = localStorage.getItem('api_token');
+      
+      if (apiToken) {
+        config.headers.Authorization = `Bearer ${apiToken}`;
+        console.log('[ApiClient] Using API token for request', {
+          endpoint,
+          tokenType: 'API_TOKEN',
+          retryCount,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        // Fall back to Supabase token if API token is missing
+        const supabaseToken = this.authContext?.session?.access_token;
+        
+        if (supabaseToken) {
+          config.headers.Authorization = `Bearer ${supabaseToken}`;
+          console.log('[ApiClient] Using Supabase token as fallback', {
+            endpoint,
+            tokenType: 'SUPABASE_TOKEN',
+            retryCount,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          console.log('[ApiClient] No token available for request', {
+            endpoint,
+            retryCount,
+            timestamp: new Date().toISOString()
+          });
+        }
       }
     }
 
@@ -29,6 +62,12 @@ class ApiClient {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        
+        // Handle 401 Unauthorized errors
+        if (response.status === 401) {
+          return this.handle401Error(endpoint, errorData, options, retryCount);
+        }
+        
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
@@ -39,9 +78,120 @@ class ApiClient {
       
       return response;
     } catch (error) {
-      console.error('API request failed:', error);
+      // Check if it's a connection error
+      if (error.message.includes('fetch') || error.name === 'TypeError') {
+        return this.handleConnectionError(endpoint, error, options, retryCount);
+      }
+      
+      console.error('[ApiClient] API request failed:', {
+        endpoint,
+        error: error.message,
+        retryCount,
+        timestamp: new Date().toISOString()
+      });
       throw error;
     }
+  }
+
+  async handle401Error(endpoint, errorData, originalOptions, retryCount) {
+    const errorCode = errorData.code || 'UNKNOWN';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('api_token') : null;
+    
+    console.error('[ApiClient] 401 Unauthorized error', {
+      endpoint,
+      errorCode,
+      errorMessage: errorData.error,
+      hasToken: !!token,
+      tokenType: token ? 'API_TOKEN' : 'NONE',
+      retryCount,
+      timestamp: new Date().toISOString()
+    });
+
+    // Prevent infinite retry loops
+    if (retryCount >= this.maxRetries) {
+      console.error('[ApiClient] Max retries reached for 401 error', {
+        endpoint,
+        retryCount,
+        timestamp: new Date().toISOString()
+      });
+      const error = new Error(errorData.error || 'Unauthorized - max retries exceeded');
+      error.code = errorCode;
+      error.status = 401;
+      throw error;
+    }
+
+    // Distinguish between missing and invalid tokens
+    if (!token) {
+      console.log('[ApiClient] 401 error: Missing token');
+    } else {
+      console.log('[ApiClient] 401 error: Invalid or expired token');
+    }
+
+    // Trigger token refresh if AuthContext is available
+    if (this.authContext?.ensureAPIToken) {
+      console.log('[ApiClient] Attempting token refresh via AuthContext', {
+        retryCount: retryCount + 1
+      });
+      
+      try {
+        const refreshed = await this.authContext.ensureAPIToken();
+        if (refreshed) {
+          console.log('[ApiClient] Token refresh successful, retrying request');
+          // Retry the original request with new token
+          return this.request(endpoint, originalOptions, retryCount + 1);
+        } else {
+          console.error('[ApiClient] Token refresh failed');
+        }
+      } catch (error) {
+        console.error('[ApiClient] Error during token refresh:', {
+          error: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    // If we can't refresh, throw the error
+    const error = new Error(errorData.error || 'Unauthorized');
+    error.code = errorCode;
+    error.status = 401;
+    throw error;
+  }
+
+  async handleConnectionError(endpoint, error, originalOptions, retryCount) {
+    console.error('[ApiClient] Connection error detected', {
+      endpoint,
+      error: error.message,
+      errorName: error.name,
+      retryCount,
+      timestamp: new Date().toISOString()
+    });
+
+    // Implement exponential backoff for connection errors
+    if (retryCount < this.maxRetries) {
+      const delay = this.retryDelay * Math.pow(2, retryCount);
+      console.log('[ApiClient] Retrying connection after delay', {
+        endpoint,
+        retryCount: retryCount + 1,
+        delayMs: delay,
+        timestamp: new Date().toISOString()
+      });
+
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return this.request(endpoint, originalOptions, retryCount + 1);
+    }
+
+    console.error('[ApiClient] Max retries reached for connection error', {
+      endpoint,
+      retryCount,
+      timestamp: new Date().toISOString()
+    });
+
+    const connectionError = new Error(
+      'Unable to connect to backend server. Please ensure the backend is running on port 3001.'
+    );
+    connectionError.code = 'ERR_CONNECTION_REFUSED';
+    connectionError.originalError = error;
+    throw connectionError;
   }
 
   // Auth methods
@@ -51,11 +201,7 @@ class ApiClient {
       body: JSON.stringify({ token: supabaseToken }),
     });
 
-    // Store API token for future requests
-    if (response.token && typeof window !== 'undefined') {
-      localStorage.setItem('api_token', response.token);
-    }
-
+    // Return response - token storage is handled by AuthContext
     return response;
   }
 

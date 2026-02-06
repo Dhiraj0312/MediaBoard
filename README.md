@@ -96,7 +96,88 @@ npm run build:backend    # Build backend only
 npm run start            # Start both applications
 npm run start:frontend   # Start frontend only
 npm run start:backend    # Start backend only
+
+# Backend Verification
+cd backend
+npm run verify           # Check if backend server is running
+npm run verify:start     # Check and auto-start if not running
 ```
+
+### Backend Server Startup
+
+The backend server must be running for the application to function properly. Here's how to manage it:
+
+#### Starting the Backend
+
+```bash
+# Option 1: Start from root directory
+npm run dev:backend
+
+# Option 2: Start from backend directory
+cd backend
+npm run dev
+```
+
+#### Verifying Backend Status
+
+Use the verification script to check if the backend is running:
+
+```bash
+cd backend
+npm run verify
+```
+
+This will:
+- Check if the server is responding on port 3001
+- Verify database connectivity
+- Verify Supabase configuration
+- Display detailed health status
+
+#### Auto-Starting the Backend
+
+To automatically start the backend if it's not running:
+
+```bash
+cd backend
+npm run verify:start
+```
+
+#### Troubleshooting Backend Issues
+
+If the backend fails to start:
+
+1. **Check port availability:**
+   ```bash
+   # Windows
+   netstat -ano | findstr :3001
+   
+   # Mac/Linux
+   lsof -i :3001
+   ```
+
+2. **Verify environment variables:**
+   - Ensure `backend/.env` exists
+   - Check `SUPABASE_URL` is set
+   - Check `SUPABASE_SERVICE_ROLE_KEY` is set
+
+3. **Check logs:**
+   - Look for error messages in the terminal
+   - The server logs all initialization steps
+   - Database connectivity is verified on startup
+
+4. **Health check endpoint:**
+   ```bash
+   curl http://localhost:3001/health
+   ```
+
+   Should return:
+   ```json
+   {
+     "status": "OK",
+     "database": "connected",
+     "supabase": "connected"
+   }
+   ```
 
 ### Project Structure
 
