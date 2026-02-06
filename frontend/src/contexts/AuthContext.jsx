@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase';
 import { apiClient } from '@/lib/api';
 
@@ -53,7 +53,7 @@ export function AuthProvider({ children }) {
     return { token, timestamp, expiry };
   };
 
-  const isTokenValid = () => {
+  const isTokenValid = useCallback(() => {
     if (typeof window === 'undefined') return false;
     
     const token = localStorage.getItem('api_token');
@@ -76,7 +76,7 @@ export function AuthProvider({ children }) {
     });
     
     return isValid;
-  };
+  }, [user?.id]);
 
   const clearStoredToken = () => {
     if (typeof window === 'undefined') return;
@@ -93,14 +93,22 @@ export function AuthProvider({ children }) {
     setApiToken(null);
   };
 
-  const ensureAPIToken = async () => {
+  const ensureAPIToken = useCallback(async () => {
     console.log('[AuthContext] Ensuring API token is valid', {
       timestamp: new Date().toISOString(),
       userId: user?.id || 'unknown'
     });
 
-    // Check if token exists and is valid
-    if (isTokenValid()) {
+    // Check if token exists and is valid - call directly without dependency
+    const tokenValid = (() => {
+      if (typeof window === 'undefined') return false;
+      const token = localStorage.getItem('api_token');
+      const expiry = localStorage.getItem('token_expiry');
+      if (!token || !expiry) return false;
+      return new Date(expiry) > new Date();
+    })();
+
+    if (tokenValid) {
       console.log('[AuthContext] API token is valid');
       return true;
     }
@@ -115,7 +123,15 @@ export function AuthProvider({ children }) {
         await authenticateWithAPI(session.access_token);
         
         // Check if token is now valid
-        if (isTokenValid()) {
+        const newTokenValid = (() => {
+          if (typeof window === 'undefined') return false;
+          const token = localStorage.getItem('api_token');
+          const expiry = localStorage.getItem('token_expiry');
+          if (!token || !expiry) return false;
+          return new Date(expiry) > new Date();
+        })();
+
+        if (newTokenValid) {
           console.log('[AuthContext] API token refresh successful');
           return true;
         } else {
@@ -136,9 +152,9 @@ export function AuthProvider({ children }) {
       clearStoredToken();
       return false;
     }
-  };
+  }, [session, user?.id]);
 
-  const checkBackendHealth = async (retryOnFailure = true) => {
+  const checkBackendHealth = useCallback(async (retryOnFailure = true) => {
     console.log('[AuthContext] Checking backend health', {
       timestamp: new Date().toISOString()
     });
@@ -173,7 +189,7 @@ export function AuthProvider({ children }) {
       
       return false;
     }
-  };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -190,8 +206,10 @@ export function AuthProvider({ children }) {
     // Get initial session
     const getInitialSession = async () => {
       try {
-        // Check backend health first
-        await checkBackendHealth();
+        // Check backend health in background (non-blocking)
+        checkBackendHealth().catch(err => {
+          console.error('[AuthContext] Background health check failed:', err);
+        });
 
         const { data: { session } } = await supabase.auth.getSession();
         
