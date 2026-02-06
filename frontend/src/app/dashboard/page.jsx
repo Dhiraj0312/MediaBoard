@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { apiClient } from '@/lib/api';
 import { useDashboardData } from '@/hooks/usePolling';
@@ -13,9 +15,68 @@ import AlertsPanel from '@/components/dashboard/AlertsPanel';
 import PollingStatus from '@/components/common/PollingStatus';
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const { isAuthenticated, initialized, ensureAPIToken, isTokenValid } = useAuth();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [tokenReady, setTokenReady] = useState(false);
+  const [tokenError, setTokenError] = useState(null);
 
-  // Use the new polling hook for real-time data
+  // Verify authentication and token before loading dashboard
+  useEffect(() => {
+    const verifyAuth = async () => {
+      console.log('[Dashboard] Verifying authentication', {
+        isAuthenticated,
+        initialized,
+        timestamp: new Date().toISOString()
+      });
+
+      // Wait for auth to initialize
+      if (!initialized) {
+        console.log('[Dashboard] Waiting for auth initialization');
+        return;
+      }
+
+      // Redirect to login if not authenticated
+      if (!isAuthenticated) {
+        console.log('[Dashboard] Not authenticated, redirecting to login');
+        router.push('/login');
+        return;
+      }
+
+      // Ensure we have a valid API token
+      console.log('[Dashboard] Checking API token validity');
+      const hasValidToken = isTokenValid();
+      
+      if (!hasValidToken) {
+        console.log('[Dashboard] No valid token, attempting to ensure token');
+        try {
+          const tokenObtained = await ensureAPIToken();
+          
+          if (tokenObtained) {
+            console.log('[Dashboard] API token obtained successfully');
+            setTokenReady(true);
+            setTokenError(null);
+          } else {
+            console.error('[Dashboard] Failed to obtain API token');
+            setTokenError('Unable to obtain authentication token. Please try logging in again.');
+            // Redirect to login after a delay
+            setTimeout(() => router.push('/login'), 3000);
+          }
+        } catch (error) {
+          console.error('[Dashboard] Error ensuring API token:', error);
+          setTokenError('Authentication error. Redirecting to login...');
+          setTimeout(() => router.push('/login'), 3000);
+        }
+      } else {
+        console.log('[Dashboard] Valid API token found');
+        setTokenReady(true);
+      }
+    };
+
+    verifyAuth();
+  }, [isAuthenticated, initialized, router, ensureAPIToken, isTokenValid]);
+
+  // Use the new polling hook for real-time data (only when token is ready)
   const {
     data: dashboardData,
     error,
@@ -27,6 +88,7 @@ export default function DashboardPage() {
     getStatus
   } = useDashboardData(apiClient, {
     interval: 300000, // 5 minutes - VERY CONSERVATIVE for production
+    enabled: tokenReady, // Only start polling when token is ready
     onData: (data, meta) => {
       if (meta.hasChanged) {
         console.log('📊 Dashboard data updated');
@@ -38,6 +100,11 @@ export default function DashboardPage() {
       // Show user-friendly message for rate limiting
       if (err.response?.status === 429 || err.message?.includes('Too many')) {
         console.warn('🚦 Dashboard polling rate limited - reducing frequency');
+      }
+      
+      // Handle 401 errors
+      if (err.status === 401 || err.message?.includes('Unauthorized')) {
+        console.error('📊 Dashboard authentication error - token may be invalid');
       }
     },
     onChange: (newData, oldData, meta) => {
@@ -58,6 +125,64 @@ export default function DashboardPage() {
   const handleResume = useCallback(() => {
     resume();
   }, [resume]);
+
+  // Show loading state while verifying authentication
+  if (!initialized || !tokenReady) {
+    return (
+      <DashboardLayout>
+        <div className="py-6">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="animate-pulse">
+              <div className="h-8 bg-gray-200 rounded w-1/4 mb-6"></div>
+              {tokenError && (
+                <div className="mb-6 bg-red-50 border border-red-200 rounded-md p-4">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-sm font-medium text-red-800">Authentication Error</h3>
+                      <div className="mt-2 text-sm text-red-700">
+                        <p>{tokenError}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="bg-white shadow rounded-lg p-5">
+                    <div className="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
+                    <div className="h-8 bg-gray-200 rounded w-1/2"></div>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 bg-white shadow rounded-lg p-6">
+                  <div className="h-6 bg-gray-200 rounded w-1/3 mb-4"></div>
+                  <div className="space-y-3">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={i} className="h-4 bg-gray-200 rounded"></div>
+                    ))}
+                  </div>
+                </div>
+                <div className="bg-white shadow rounded-lg p-6">
+                  <div className="h-6 bg-gray-200 rounded w-1/2 mb-4"></div>
+                  <div className="space-y-3">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="h-4 bg-gray-200 rounded"></div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (isLoading && !dashboardData) {
     return (
@@ -116,14 +241,25 @@ export default function DashboardPage() {
                     Failed to load dashboard data
                   </h3>
                   <div className="mt-2 text-sm text-red-700">
-                    <p>{error.message}</p>
+                    <p>{error.message || 'An unexpected error occurred'}</p>
+                    {error.status === 401 && (
+                      <p className="mt-2">
+                        Your session may have expired. Please try refreshing or logging in again.
+                      </p>
+                    )}
+                    {error.code === 'ERR_CONNECTION_REFUSED' && (
+                      <p className="mt-2">
+                        Unable to connect to the backend server. Please ensure it is running.
+                      </p>
+                    )}
                   </div>
                   <div className="mt-4 flex space-x-2">
                     <button
                       onClick={handleRefresh}
-                      className="bg-red-100 px-3 py-2 rounded-md text-sm font-medium text-red-800 hover:bg-red-200"
+                      disabled={isLoading}
+                      className="bg-red-100 px-3 py-2 rounded-md text-sm font-medium text-red-800 hover:bg-red-200 disabled:opacity-50"
                     >
-                      Try Again
+                      {isLoading ? 'Retrying...' : 'Try Again'}
                     </button>
                     <button
                       onClick={handleResume}
@@ -131,6 +267,14 @@ export default function DashboardPage() {
                     >
                       Resume Polling
                     </button>
+                    {error.status === 401 && (
+                      <button
+                        onClick={() => router.push('/login')}
+                        className="bg-red-100 px-3 py-2 rounded-md text-sm font-medium text-red-800 hover:bg-red-200"
+                      >
+                        Go to Login
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

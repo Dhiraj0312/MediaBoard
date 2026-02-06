@@ -43,6 +43,12 @@ export function usePolling(id, config, dependencies = []) {
 
   useEffect(() => {
     if (!config.fetchFunction) return;
+    
+    // Don't start polling if explicitly disabled
+    if (config.enabled === false) {
+      console.log(`[usePolling] Polling disabled for ${id}`);
+      return;
+    }
 
     // Create poller with enhanced config
     const pollerConfig = {
@@ -61,7 +67,7 @@ export function usePolling(id, config, dependencies = []) {
         pollerRef.current = null;
       }
     };
-  }, [id, handleData, handleError, handleChange, ...dependencies]);
+  }, [id, handleData, handleError, handleChange, config.enabled, ...dependencies]);
 
   const refresh = useCallback(() => {
     if (pollerRef.current) {
